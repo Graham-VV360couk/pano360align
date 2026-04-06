@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AlignmentValues } from "@/app/page";
 import { addClientJob } from "@/lib/clientJobs";
+import { setLastAlignment } from "@/lib/clientAlignment";
 
 interface VideoSectionProps {
   file: File;
@@ -475,6 +476,9 @@ export default function VideoSection({
         filename: file.name,
         submittedAt: Date.now(),
       });
+      // Remember these values for the next video — same camera setup
+      // means the user can one-click "Apply last" instead of re-aligning.
+      setLastAlignment(lockedAlignment);
       // Notify same-tab listeners (JobList watches this)
       window.dispatchEvent(new Event("pano360.jobs.changed"));
 

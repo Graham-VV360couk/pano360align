@@ -13,6 +13,7 @@ import {
   type ReferenceLine,
   averageRoll as computeAverageRoll,
 } from "@/lib/lineMath";
+import { getLastAlignment, type SavedAlignment } from "@/lib/clientAlignment";
 
 interface AlignmentCanvasProps {
   frameDataURL: string;
@@ -43,6 +44,12 @@ export default function AlignmentCanvas({
   const [showGuides, setShowGuides] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [mode, setMode] = useState<LineMode>("pan");
+  const [lastAlignment, setLastAlignmentState] = useState<SavedAlignment | null>(null);
+  // Read the last-saved alignment when the component mounts (and when the
+  // frame source changes — a fresh video means we should re-check).
+  useEffect(() => {
+    setLastAlignmentState(getLastAlignment());
+  }, [frameDataURL]);
   const [lines, setLines] = useState<ReferenceLine[]>([]);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
@@ -374,6 +381,26 @@ export default function AlignmentCanvas({
             >
               Guide lines
             </button>
+            {lastAlignment &&
+              (lastAlignment.yaw !== alignment.yaw ||
+                lastAlignment.pitch !== alignment.pitch ||
+                lastAlignment.roll !== alignment.roll) && (
+                <button
+                  onClick={() => {
+                    onAlignmentChange({
+                      yaw: lastAlignment.yaw,
+                      pitch: lastAlignment.pitch,
+                      roll: lastAlignment.roll,
+                    });
+                    setLines([]);
+                    setSelectedLineId(null);
+                  }}
+                  className="font-mono text-xs text-accent/80 hover:text-accent transition-colors"
+                  title={`yaw ${lastAlignment.yaw.toFixed(1)}° pitch ${lastAlignment.pitch.toFixed(1)}° roll ${lastAlignment.roll.toFixed(1)}°`}
+                >
+                  ↻ Apply last ({lastAlignment.yaw.toFixed(1)}°, {lastAlignment.pitch.toFixed(1)}°, {lastAlignment.roll.toFixed(1)}°)
+                </button>
+              )}
             <button
               onClick={() => {
                 onAlignmentChange({ yaw: 0, pitch: 0, roll: 0 });
