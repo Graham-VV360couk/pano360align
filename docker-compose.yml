@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  pano360align:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MAX_UPLOAD_SIZE_GB=8
+      - OUTPUT_TTL_HOURS=2
+      - ENCODE_CRF=18
+      - ENCODE_PRESET=slow
+      - TEMP_DIR=/tmp/360aligner
+    volumes:
+      - temp-data:/tmp/360aligner
+    restart: unless-stopped
+
+volumes:
+  temp-data:
