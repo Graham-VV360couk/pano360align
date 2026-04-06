@@ -163,3 +163,33 @@ export function projectSphericalToScreen(
   const y = ((halfFovV - angV) / (2 * halfFovV)) * H;
   return { x, y, visible: true };
 }
+
+/**
+ * Shortest distance from a point to a finite line segment, in the same
+ * units as the inputs (pixels). Used to hit-test clicks against drawn
+ * lines on the overlay canvas.
+ */
+export function distanceToSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) {
+    const ex = px - ax;
+    const ey = py - ay;
+    return Math.sqrt(ex * ex + ey * ey);
+  }
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  const ex = px - cx;
+  const ey = py - cy;
+  return Math.sqrt(ex * ex + ey * ey);
+}

@@ -87,3 +87,24 @@ describe("screenToSpherical / projectSphericalToScreen — round trip", () => {
     expect(back.y).toBeCloseTo(240, 0);
   });
 });
+
+import { distanceToSegment } from "./lineMath";
+
+describe("distanceToSegment", () => {
+  it("returns 0 for a point on the segment", () => {
+    expect(distanceToSegment(50, 50, 0, 0, 100, 100)).toBeCloseTo(0);
+  });
+
+  it("returns perpendicular distance to the segment line", () => {
+    expect(distanceToSegment(0, 10, 0, 0, 100, 0)).toBeCloseTo(10);
+  });
+
+  it("returns distance to the nearest endpoint when past the end", () => {
+    expect(distanceToSegment(110, 0, 0, 0, 100, 0)).toBeCloseTo(10);
+    expect(distanceToSegment(-10, 0, 0, 0, 100, 0)).toBeCloseTo(10);
+  });
+
+  it("handles zero-length segments by returning distance to the point", () => {
+    expect(distanceToSegment(3, 4, 0, 0, 0, 0)).toBeCloseTo(5);
+  });
+});
