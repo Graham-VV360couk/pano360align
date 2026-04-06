@@ -255,9 +255,23 @@ async function processOne(id: string): Promise<void> {
   await persist(job);
 }
 
+/** Wrap an angle into [-180, 180]. Multiple full turns are reduced to one. */
+function wrap180(deg: number): number {
+  const x = ((deg + 180) % 360 + 360) % 360 - 180;
+  // Avoid -180 vs 180 sign quirks at the boundary
+  return x === -180 ? 180 : x;
+}
+
 function runFfmpeg(job: Job, inputPath: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const { yaw, pitch, roll } = job.alignment;
+    // Normalise the alignment values into FFmpeg v360's valid ranges.
+    // The UI lets the user pan freely so yaw can drift past ±180; FFmpeg
+    // refuses anything outside [-180, 180]. Pitch is clamped to ±90, roll
+    // wraps the same as yaw. This keeps the math identical (just a sign
+    // flip if you went round the long way) while satisfying the filter.
+    const yaw = wrap180(job.alignment.yaw);
+    const roll = wrap180(job.alignment.roll);
+    const pitch = Math.max(-90, Math.min(90, job.alignment.pitch));
     const vf = `v360=e:e:yaw=${yaw}:pitch=${pitch}:roll=${roll}:interp=lanczos`;
     const trimArgs = job.trimStart > 0 ? ["-ss", String(job.trimStart)] : [];
     const args = [
