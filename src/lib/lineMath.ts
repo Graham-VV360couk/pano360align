@@ -193,3 +193,17 @@ export function distanceToSegment(
   const ey = py - cy;
   return Math.sqrt(ex * ex + ey * ey);
 }
+
+/**
+ * A reference line stored in world (spherical) coordinates so it remains
+ * anchored to the underlying scene as the user pans. The `derivedRoll`
+ * is computed at draw time from the screen-space angle and frozen for
+ * the line's lifetime.
+ */
+export interface ReferenceLine {
+  id: number;
+  orientation: LineOrientation;
+  a: { yaw: number; pitch: number };
+  b: { yaw: number; pitch: number };
+  derivedRoll: number;
+}
