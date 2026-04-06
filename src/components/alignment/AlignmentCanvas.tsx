@@ -20,7 +20,9 @@ interface AlignmentCanvasProps {
   onAlignmentChange: (values: AlignmentValues) => void;
 }
 
-const FOV = 100;
+const DEFAULT_FOV = 100;
+const MIN_FOV = 50;
+const MAX_FOV = 140;
 const DRAG_SENSITIVITY = 0.6;
 const KEY_STEP = 2;
 const ROLL_KEY_STEP = 0.5;
@@ -44,6 +46,9 @@ export default function AlignmentCanvas({
   const [lines, setLines] = useState<ReferenceLine[]>([]);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+  const [fov, setFov] = useState(DEFAULT_FOV);
+  const fovRef = useRef(DEFAULT_FOV);
+  useEffect(() => { fovRef.current = fov; }, [fov]);
   const nextLineIdRef = useRef(1);
 
   // Keep latest alignment available to imperative handlers
@@ -64,7 +69,7 @@ export default function AlignmentCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const img = ctx.createImageData(canvas.width, canvas.height);
-    renderEquirect(img, pixels, { ...alignmentRef.current, fov: FOV });
+    renderEquirect(img, pixels, { ...alignmentRef.current, fov: fovRef.current });
     ctx.putImageData(img, 0, 0);
   }, []);
 
@@ -79,6 +84,7 @@ export default function AlignmentCanvas({
     setSelectedLineId(null);
     nextLineIdRef.current = 1;
     setMode("pan");
+    setFov(DEFAULT_FOV);
     setLoaded(false);
     pixelsRef.current = null;
     const img = new Image();
@@ -91,10 +97,10 @@ export default function AlignmentCanvas({
     img.src = frameDataURL;
   }, [frameDataURL, requestDraw]);
 
-  // Re-render whenever alignment changes
+  // Re-render whenever alignment or FOV changes
   useEffect(() => {
     if (loaded) requestDraw();
-  }, [alignment, loaded, requestDraw]);
+  }, [alignment, fov, loaded, requestDraw]);
 
   // Resize canvas to match container; render at devicePixelRatio-independent
   // resolution capped for perf (the renderer is per-pixel JS).
@@ -136,7 +142,7 @@ export default function AlignmentCanvas({
       const dx = e.clientX - lastPosRef.current.x;
       const dy = e.clientY - lastPosRef.current.y;
       lastPosRef.current = { x: e.clientX, y: e.clientY };
-      const sensitivity = (FOV / canvas.width) * DRAG_SENSITIVITY;
+      const sensitivity = (fovRef.current / canvas.width) * DRAG_SENSITIVITY;
       const a = alignmentRef.current;
       const next = {
         yaw: a.yaw - dx * sensitivity,
@@ -164,7 +170,7 @@ export default function AlignmentCanvas({
       const dx = e.touches[0].clientX - lastPosRef.current.x;
       const dy = e.touches[0].clientY - lastPosRef.current.y;
       lastPosRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      const sensitivity = (FOV / canvas.width) * DRAG_SENSITIVITY;
+      const sensitivity = (fovRef.current / canvas.width) * DRAG_SENSITIVITY;
       const a = alignmentRef.current;
       onAlignmentChange({
         yaw: a.yaw - dx * sensitivity,
@@ -273,7 +279,7 @@ export default function AlignmentCanvas({
         <LineOverlay
           width={canvasSize.w}
           height={canvasSize.h}
-          view={{ ...alignment, fov: FOV }}
+          view={{ ...alignment, fov }}
           lines={lines}
           selectedLineId={selectedLineId}
           mode={mode}
@@ -322,6 +328,30 @@ export default function AlignmentCanvas({
             {fmt(alignment.roll)}
           </span>
         </div>
+        <div className="flex items-center gap-4">
+          <label
+            className="font-mono text-xs text-text-muted w-10"
+            title="Preview FOV — does not affect export"
+          >
+            FOV
+          </label>
+          <input
+            type="range"
+            min={MIN_FOV}
+            max={MAX_FOV}
+            step={1}
+            value={fov}
+            onChange={(e) => setFov(parseFloat(e.target.value))}
+            className="flex-1"
+          />
+          <span className="font-mono text-xs text-text-muted w-16 text-right">
+            {fov.toFixed(0)}°
+          </span>
+        </div>
+        <div className="text-[10px] font-mono text-text-muted opacity-60 -mt-1">
+          FOV is preview-only (zoom for finding straight lines) — it does not
+          affect the exported video.
+        </div>
 
         <div className="flex items-center justify-between">
           <div className="flex gap-6 font-mono text-xs">
@@ -349,6 +379,7 @@ export default function AlignmentCanvas({
                 onAlignmentChange({ yaw: 0, pitch: 0, roll: 0 });
                 setLines([]);
                 setSelectedLineId(null);
+                setFov(DEFAULT_FOV);
               }}
               className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
             >

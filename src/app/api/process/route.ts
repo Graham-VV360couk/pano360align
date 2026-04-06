@@ -17,11 +17,12 @@ const ENCODE_CRF = 18;
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { jobId, yaw, pitch, roll } = body as {
+  const { jobId, yaw, pitch, roll, trimStart } = body as {
     jobId?: string;
     yaw?: number;
     pitch?: number;
     roll?: number;
+    trimStart?: number; // optional seconds — when set, output starts here
   };
 
   if (!jobId || yaw === undefined || pitch === undefined || roll === undefined) {
@@ -41,9 +42,14 @@ export async function POST(req: NextRequest) {
   // Build the v360 filter. Sign convention follows the alignment canvas;
   // negate here if testing reveals an inversion (see docs/PROCESSING.md).
   const vf = `v360=e:e:yaw=${yaw}:pitch=${pitch}:roll=${roll}:interp=lanczos`;
+  // For trimming, place -ss AFTER -i so the seek is frame-accurate (slower
+  // but avoids audio drift). For untrimmed jobs we skip -ss entirely.
+  const trimArgs =
+    typeof trimStart === "number" && trimStart > 0 ? ["-ss", String(trimStart)] : [];
   const args = [
     "-y",
     "-i", job.inputPath,
+    ...trimArgs,
     "-vf", vf,
     "-c:v", "libx264",
     "-crf", String(ENCODE_CRF),

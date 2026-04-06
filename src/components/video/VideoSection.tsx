@@ -82,6 +82,7 @@ export default function VideoSection({
   const [lockedAlignment, setLockedAlignment] = useState<AlignmentValues | null>(
     null
   );
+  const [trimToReference, setTrimToReference] = useState(false);
   type Phase = "idle" | "uploading" | "processing" | "complete" | "failed";
   const [phase, setPhase] = useState<Phase>("idle");
   const [jobId, setJobId] = useState<string | null>(null);
@@ -449,6 +450,8 @@ export default function VideoSection({
           yaw: lockedAlignment.yaw,
           pitch: lockedAlignment.pitch,
           roll: lockedAlignment.roll,
+          trimStart:
+            trimToReference && refTime != null && refTime > 0 ? refTime : undefined,
         }),
       });
       if (!procRes.ok) {
@@ -748,6 +751,23 @@ export default function VideoSection({
             if needed.
           </p>
         </div>
+
+        {/* Trim option */}
+        <label className="flex items-center gap-3 font-mono text-xs text-text-muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={trimToReference}
+            onChange={(e) => setTrimToReference(e.target.checked)}
+            disabled={refTime == null || refTime === 0}
+            className="accent-accent"
+          />
+          <span>
+            Trim output to start at reference frame
+            {refTime != null && refTime > 0 && (
+              <span className="ml-2 text-accent">({fmtTime(refTime)})</span>
+            )}
+          </span>
+        </label>
 
         {/* Retrieve values */}
         <div className="flex gap-3">

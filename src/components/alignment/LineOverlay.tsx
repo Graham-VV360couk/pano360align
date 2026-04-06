@@ -205,7 +205,11 @@ export default function LineOverlay({
         style={{
           width: "100%",
           height: "100%",
-          pointerEvents: "auto",
+          // In Pan mode the overlay must NOT swallow drag events — they need
+          // to reach the underlying canvas's drag-to-yaw/pitch handler. The
+          // overlay is purely visual in Pan mode; line management happens via
+          // the LineList × buttons.
+          pointerEvents: mode === "pan" ? "none" : "auto",
           cursor:
             mode === "pan"
               ? lines.length > 0
