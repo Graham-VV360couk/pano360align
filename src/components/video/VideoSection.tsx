@@ -89,8 +89,8 @@ export default function VideoSection({
   const [jobProgress, setJobProgress] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [jobError, setJobError] = useState<string | null>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Late reference frame warning (Warning 2)
   const [lateRefDismissed, setLateRefDismissed] = useState(false);
@@ -123,10 +123,10 @@ export default function VideoSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alignment.yaw, alignment.pitch, alignment.roll]);
 
-  // Cleanup any open EventSource on unmount
+  // Cleanup any open polling interval on unmount
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
 
@@ -402,18 +402,36 @@ export default function VideoSection({
     setPhase("uploading");
 
     try {
-      // 1. Stream the file via XHR with the raw body. We do NOT use FormData
-      //    because the server's streaming upload route reads the request
-      //    body directly to avoid buffering multi-GB files in RAM.
-      const newJobId = await new Promise<string>((resolve, reject) => {
+      // 1. Ask server for a presigned PUT URL and a fresh jobId.
+      //    The server creates the job in "pending-upload" state.
+      const initRes = await fetch("/api/upload-init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          alignment: lockedAlignment,
+          trimStart:
+            trimToReference && refTime != null && refTime > 0 ? refTime : 0,
+        }),
+      });
+      if (!initRes.ok) {
+        throw new Error(
+          `upload-init failed: ${initRes.status} ${await initRes.text()}`
+        );
+      }
+      const { jobId: newJobId, putUrl } = (await initRes.json()) as {
+        jobId: string;
+        putUrl: string;
+      };
+      setJobId(newJobId);
+
+      // 2. PUT the raw file directly to S3 — bypasses our app server's
+      //    proxy entirely so the 90s upload timeout is no longer a factor.
+      await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         uploadXhrRef.current = xhr;
-        xhr.open("POST", "/api/upload");
-        xhr.setRequestHeader("X-Filename", file.name);
-        xhr.setRequestHeader(
-          "Content-Type",
-          file.type || "application/octet-stream"
-        );
+        xhr.open("PUT", putUrl);
+        xhr.setRequestHeader("Content-Type", "application/octet-stream");
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             setUploadProgress((e.loaded / e.total) * 100);
@@ -421,20 +439,15 @@ export default function VideoSection({
         };
         xhr.onload = () => {
           uploadXhrRef.current = null;
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const j = JSON.parse(xhr.responseText) as { jobId: string };
-              resolve(j.jobId);
-            } catch {
-              reject(new Error("Bad upload response"));
-            }
-          } else {
-            reject(new Error(`Upload failed: ${xhr.status} ${xhr.responseText}`));
-          }
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else
+            reject(
+              new Error(`S3 upload failed: ${xhr.status} ${xhr.responseText}`)
+            );
         };
         xhr.onerror = () => {
           uploadXhrRef.current = null;
-          reject(new Error("Upload network error"));
+          reject(new Error("S3 upload network error"));
         };
         xhr.onabort = () => {
           uploadXhrRef.current = null;
@@ -442,61 +455,62 @@ export default function VideoSection({
         };
         xhr.send(file);
       });
-      setJobId(newJobId);
       setUploadProgress(100);
 
-      // 2. Kick off processing
-      setPhase("processing");
-      const procRes = await fetch("/api/process", {
+      // 3. Tell the server the upload is done — it will mark the job as
+      //    queued and the worker will pick it up.
+      const completeRes = await fetch("/api/upload-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobId: newJobId,
-          yaw: lockedAlignment.yaw,
-          pitch: lockedAlignment.pitch,
-          roll: lockedAlignment.roll,
-          trimStart:
-            trimToReference && refTime != null && refTime > 0 ? refTime : undefined,
-        }),
+        body: JSON.stringify({ jobId: newJobId }),
       });
-      if (!procRes.ok) {
-        throw new Error(`Process failed: ${procRes.status} ${await procRes.text()}`);
+      if (!completeRes.ok) {
+        throw new Error(
+          `upload-complete failed: ${completeRes.status} ${await completeRes.text()}`
+        );
       }
 
-      // 3. Subscribe to SSE progress
-      const es = new EventSource(`/api/progress/${newJobId}`);
-      eventSourceRef.current = es;
-      es.onmessage = (e) => {
-        try {
-          const snap = JSON.parse(e.data) as {
-            status: string;
-            progress: number;
-            error?: string;
-          };
-          setJobProgress(snap.progress);
-          if (snap.status === "complete") {
-            setPhase("complete");
-            es.close();
-            eventSourceRef.current = null;
-          } else if (snap.status === "failed" || snap.status === "expired") {
-            setPhase("failed");
-            setJobError(snap.error || "Processing failed");
-            es.close();
-            eventSourceRef.current = null;
-          }
-        } catch {}
-      };
-      es.onerror = () => {
-        // The stream may close cleanly on terminal status — only treat as
-        // an error if we never reached complete.
-        if (phase !== "complete") {
-          // Don't immediately fail — the connection may just be closing.
-        }
-      };
+      // 4. Poll /api/jobs/list every 3 seconds until terminal status.
+      setPhase("processing");
+      pollJob(newJobId);
     } catch (err) {
       setPhase("failed");
       setJobError((err as Error).message);
     }
+  };
+
+  const pollJob = (id: string) => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/jobs/list", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [id] }),
+        });
+        if (!res.ok) return;
+        const list = (await res.json()) as Array<{
+          status: string;
+          progress: number;
+          error: string | null;
+        }>;
+        const snap = list[0];
+        if (!snap) return;
+        setJobProgress(snap.progress);
+        if (snap.status === "complete") {
+          setPhase("complete");
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        } else if (snap.status === "failed") {
+          setPhase("failed");
+          setJobError(snap.error || "Processing failed");
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      } catch {}
+    };
+    tick();
+    pollIntervalRef.current = setInterval(tick, 3000);
   };
 
   const cancelJob = async () => {
@@ -507,8 +521,10 @@ export default function VideoSection({
       } catch {}
       uploadXhrRef.current = null;
     }
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
     if (jobId) {
       try {
         await fetch(`/api/job/${jobId}`, { method: "DELETE" });
