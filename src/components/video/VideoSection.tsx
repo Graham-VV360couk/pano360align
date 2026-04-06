@@ -402,13 +402,18 @@ export default function VideoSection({
     setPhase("uploading");
 
     try {
-      // 1. Upload the file via XHR for real progress
-      const fd = new FormData();
-      fd.append("file", file);
+      // 1. Stream the file via XHR with the raw body. We do NOT use FormData
+      //    because the server's streaming upload route reads the request
+      //    body directly to avoid buffering multi-GB files in RAM.
       const newJobId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         uploadXhrRef.current = xhr;
         xhr.open("POST", "/api/upload");
+        xhr.setRequestHeader("X-Filename", file.name);
+        xhr.setRequestHeader(
+          "Content-Type",
+          file.type || "application/octet-stream"
+        );
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             setUploadProgress((e.loaded / e.total) * 100);
@@ -435,7 +440,7 @@ export default function VideoSection({
           uploadXhrRef.current = null;
           reject(new Error("Upload cancelled"));
         };
-        xhr.send(fd);
+        xhr.send(file);
       });
       setJobId(newJobId);
       setUploadProgress(100);
