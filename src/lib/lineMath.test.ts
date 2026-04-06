@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { derivedRollFromScreenAngle } from "./lineMath";
+import { derivedRollFromScreenAngle, averageRoll } from "./lineMath";
 
 describe("derivedRollFromScreenAngle", () => {
   it("returns 0 for a perfectly level horizontal line", () => {
@@ -26,5 +26,19 @@ describe("derivedRollFromScreenAngle", () => {
   it("returns -3 for a vertical line tilted 3° from plumb", () => {
     // -90 + 3 = -87  →  derivedRoll = -(-87 + 90) = -3
     expect(derivedRollFromScreenAngle(-87, "vertical")).toBeCloseTo(-3);
+  });
+});
+
+describe("averageRoll", () => {
+  it("returns 0 for an empty array", () => {
+    expect(averageRoll([])).toBe(0);
+  });
+
+  it("returns the single value for one entry", () => {
+    expect(averageRoll([2.5])).toBeCloseTo(2.5);
+  });
+
+  it("averages multiple values", () => {
+    expect(averageRoll([-3, -2, -4])).toBeCloseTo(-3);
   });
 });

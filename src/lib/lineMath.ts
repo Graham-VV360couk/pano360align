@@ -36,3 +36,14 @@ export function derivedRollFromScreenAngle(
   if (angle > 0) angle -= 180;
   return -(angle + 90);
 }
+
+/**
+ * Average a list of derived roll values. Returns 0 for an empty list
+ * (caller should treat that as "no correction").
+ */
+export function averageRoll(rolls: number[]): number {
+  if (rolls.length === 0) return 0;
+  let sum = 0;
+  for (const r of rolls) sum += r;
+  return sum / rolls.length;
+}
