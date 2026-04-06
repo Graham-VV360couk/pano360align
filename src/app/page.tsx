@@ -7,6 +7,7 @@ import UploadZone from "@/components/upload/UploadZone";
 import AlignmentCanvas from "@/components/alignment/AlignmentCanvas";
 import StillExport from "@/components/alignment/StillExport";
 import VideoSection from "@/components/video/VideoSection";
+import JobList from "@/components/jobs/JobList";
 
 export type FileType = "image" | "video" | null;
 
@@ -51,6 +52,7 @@ export default function Home() {
       <Header />
 
       <div className="flex-1 w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
+        <JobList />
         {/* Upload zone — collapses once file is loaded */}
         <UploadZone
           onFileLoaded={handleFileLoaded}
@@ -84,7 +86,7 @@ export default function Home() {
             file={file}
             alignment={alignment}
             onFrameSelected={handleFrameSelected}
-            frameSelected={frameDataURL !== null}
+            onJobQueued={handleReset}
           />
         )}
       </div>

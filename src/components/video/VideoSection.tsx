@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AlignmentValues } from "@/app/page";
+import { addClientJob } from "@/lib/clientJobs";
 
 interface VideoSectionProps {
   file: File;
   alignment: AlignmentValues;
   onFrameSelected: (dataURL: string) => void;
-  frameSelected: boolean;
+  onJobQueued: () => void;
 }
 
 interface Thumb {
@@ -52,7 +53,7 @@ export default function VideoSection({
   file,
   alignment,
   onFrameSelected,
-  frameSelected,
+  onJobQueued,
 }: VideoSectionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const refCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -77,6 +78,7 @@ export default function VideoSection({
   }>({ visible: false, left: 0, time: 0 });
   const [playbackRate, setPlaybackRate] = useState(1);
   const [decodeError, setDecodeError] = useState(false);
+  const [frameLocked, setFrameLocked] = useState(false);
 
   // Production pipeline state
   const [lockedAlignment, setLockedAlignment] = useState<AlignmentValues | null>(
@@ -86,11 +88,9 @@ export default function VideoSection({
   type Phase = "idle" | "uploading" | "processing" | "complete" | "failed";
   const [phase, setPhase] = useState<Phase>("idle");
   const [jobId, setJobId] = useState<string | null>(null);
-  const [jobProgress, setJobProgress] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [jobError, setJobError] = useState<string | null>(null);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Late reference frame warning (Warning 2)
   const [lateRefDismissed, setLateRefDismissed] = useState(false);
@@ -122,13 +122,6 @@ export default function VideoSection({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alignment.yaw, alignment.pitch, alignment.roll]);
-
-  // Cleanup any open polling interval on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
-  }, []);
 
   // Drive the video element from the file prop
   useEffect(() => {
@@ -372,6 +365,7 @@ export default function VideoSection({
     const dataURL = oc.toDataURL("image/jpeg", 0.92);
     setRefTime(playheadTimeRef.current);
     setLateRefDismissed(false);
+    setFrameLocked(true);
     onFrameSelected(dataURL);
   };
 
@@ -396,8 +390,13 @@ export default function VideoSection({
       if (!ok) return;
     }
 
+    // Queue confirmation
+    const okQueue = window.confirm(
+      "This video will be added to the processing queue. OK?"
+    );
+    if (!okQueue) return;
+
     setJobError(null);
-    setJobProgress(0);
     setUploadProgress(0);
     setPhase("uploading");
 
@@ -470,47 +469,25 @@ export default function VideoSection({
         );
       }
 
-      // 4. Poll /api/jobs/list every 3 seconds until terminal status.
-      setPhase("processing");
-      pollJob(newJobId);
+      // Persist to localStorage so JobList picks it up
+      addClientJob({
+        id: newJobId,
+        filename: file.name,
+        submittedAt: Date.now(),
+      });
+      // Notify same-tab listeners (JobList watches this)
+      window.dispatchEvent(new Event("pano360.jobs.changed"));
+
+      // Reset everything so the user can immediately drop another file.
+      // The JobList component handles all subsequent status reporting.
+      setPhase("idle");
+      setJobId(null);
+      setUploadProgress(0);
+      onJobQueued();
     } catch (err) {
       setPhase("failed");
       setJobError((err as Error).message);
     }
-  };
-
-  const pollJob = (id: string) => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    const tick = async () => {
-      try {
-        const res = await fetch("/api/jobs/list", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: [id] }),
-        });
-        if (!res.ok) return;
-        const list = (await res.json()) as Array<{
-          status: string;
-          progress: number;
-          error: string | null;
-        }>;
-        const snap = list[0];
-        if (!snap) return;
-        setJobProgress(snap.progress);
-        if (snap.status === "complete") {
-          setPhase("complete");
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        } else if (snap.status === "failed") {
-          setPhase("failed");
-          setJobError(snap.error || "Processing failed");
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-        }
-      } catch {}
-    };
-    tick();
-    pollIntervalRef.current = setInterval(tick, 3000);
   };
 
   const cancelJob = async () => {
@@ -521,24 +498,14 @@ export default function VideoSection({
       } catch {}
       uploadXhrRef.current = null;
     }
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
     if (jobId) {
       try {
         await fetch(`/api/job/${jobId}`, { method: "DELETE" });
       } catch {}
     }
     setPhase("idle");
-    setJobProgress(0);
     setUploadProgress(0);
     setJobId(null);
-  };
-
-  const downloadResult = () => {
-    if (!jobId) return;
-    window.location.href = `/api/download/${jobId}`;
   };
 
   // Highlight nearest thumbnail to playhead and ref marker
@@ -721,10 +688,14 @@ export default function VideoSection({
         {/* Use this frame */}
         <button
           onClick={useThisFrame}
-          disabled={!duration}
-          className="w-full py-3 rounded-lg bg-accent/10 border border-accent/30 text-accent font-heading text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          disabled={!duration || frameLocked}
+          className={`w-full py-3 rounded-lg border font-heading text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+            frameLocked
+              ? "bg-accent/5 border-accent/40 text-accent disabled:opacity-100"
+              : "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 disabled:opacity-30"
+          }`}
         >
-          USE THIS FRAME
+          {frameLocked ? "USE THIS FRAME ✓" : "USE THIS FRAME"}
         </button>
 
         {/* Warning 2 — late reference frame */}
@@ -766,10 +737,10 @@ export default function VideoSection({
         {/* Advisory */}
         <div className="rounded-lg bg-yellow-500/5 border border-yellow-500/20 px-4 py-3">
           <p className="font-mono text-xs text-yellow-200/70 leading-relaxed">
-            These values will be applied to every frame of your video — from the very
-            first to the very last. If your video contains setup footage or camera
-            movement, those frames will also be corrected. Trim your source file first
-            if needed.
+            These values will be applied to every frame of your video — from the
+            very first to the very last. If you only want part of the video
+            corrected, trim your source file first or use the &ldquo;Trim to
+            start at reference frame&rdquo; option below.
           </p>
         </div>
 
@@ -794,23 +765,27 @@ export default function VideoSection({
         <div className="flex gap-3">
           <button
             onClick={retrieveValues}
-            disabled={!frameSelected || phase === "uploading" || phase === "processing"}
-            className={`flex-1 py-3 rounded-lg border font-heading text-sm font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+            disabled={
+              !frameLocked ||
+              lockedAlignment !== null ||
+              phase === "uploading" ||
+              phase === "processing"
+            }
+            className={`flex-1 py-3 rounded-lg border font-heading text-sm font-medium transition-colors disabled:cursor-not-allowed ${
               lockedAlignment
-                ? "border-accent/40 text-accent bg-accent/5"
-                : "border-border-subtle hover:border-accent/30"
+                ? "border-accent/40 text-accent bg-accent/5 disabled:opacity-100"
+                : "border-border-subtle hover:border-accent/30 disabled:opacity-30"
             }`}
             title={`yaw ${alignment.yaw.toFixed(1)} pitch ${alignment.pitch.toFixed(1)} roll ${alignment.roll.toFixed(1)}`}
           >
-            {lockedAlignment ? "Values Locked ✓" : "Retrieve Alignment Values"}
+            {lockedAlignment ? "VALUES LOCKED ✓" : "Retrieve Alignment Values"}
           </button>
           <button
             onClick={produce}
             disabled={
               !lockedAlignment ||
               phase === "uploading" ||
-              phase === "processing" ||
-              phase === "complete"
+              phase === "processing"
             }
             className="flex-1 py-3 rounded-lg bg-accent/10 border border-accent/30 text-accent font-heading text-sm font-medium disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent/20 transition-colors"
           >
@@ -849,40 +824,6 @@ export default function VideoSection({
           </div>
         )}
 
-        {phase === "processing" && (
-          <div className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="font-mono text-xs text-accent">
-                Processing… {jobProgress.toFixed(1)}%
-              </p>
-              <button
-                onClick={cancelJob}
-                className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-            <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
-              <div
-                className="h-full bg-accent transition-all"
-                style={{ width: `${jobProgress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {phase === "complete" && (
-          <div className="rounded-lg border border-accent/40 bg-accent/10 px-4 py-3 space-y-2">
-            <p className="font-mono text-xs text-accent">Processing complete.</p>
-            <button
-              onClick={downloadResult}
-              className="w-full py-3 rounded-lg bg-accent text-black font-heading text-sm font-medium hover:bg-accent/90 transition-colors"
-            >
-              Download corrected video
-            </button>
-          </div>
-        )}
-
         {phase === "failed" && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 space-y-2">
             <p className="font-mono text-xs text-red-300">
@@ -892,7 +833,6 @@ export default function VideoSection({
               onClick={() => {
                 setPhase("idle");
                 setJobError(null);
-                setJobProgress(0);
                 setJobId(null);
               }}
               className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
