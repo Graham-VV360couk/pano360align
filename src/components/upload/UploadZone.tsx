@@ -59,17 +59,30 @@ export default function UploadZone({ onFileLoaded, collapsed, onReset, fileName,
   }, [handleFile]);
 
   if (collapsed) {
+    const isLarge = (fileSize ?? 0) > 2 * 1024 * 1024 * 1024;
+    const sizeGb = ((fileSize ?? 0) / (1024 * 1024 * 1024)).toFixed(1);
     return (
-      <div className="flex items-center justify-between border border-border-subtle rounded-lg px-4 py-3">
-        <div className="font-mono text-sm text-text-muted">
-          {fileName} {fileSize ? `(${formatBytes(fileSize)})` : ""}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between border border-border-subtle rounded-lg px-4 py-3">
+          <div className="font-mono text-sm text-text-muted">
+            {fileName} {fileSize ? `(${formatBytes(fileSize)})` : ""}
+          </div>
+          <button
+            onClick={onReset}
+            className="font-mono text-xs text-accent hover:underline"
+          >
+            Start again
+          </button>
         </div>
-        <button
-          onClick={onReset}
-          className="font-mono text-xs text-accent hover:underline"
-        >
-          Start again
-        </button>
+        {isLarge && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/5 px-4 py-2">
+            <p className="font-mono text-[11px] text-yellow-200/80 leading-relaxed">
+              ℹ Large file ({sizeGb} GB). Processing will take longer than usual —
+              expect tens of minutes or more depending on server load. The page
+              must remain open during processing.
+            </p>
+          </div>
+        )}
       </div>
     );
   }

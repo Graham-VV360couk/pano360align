@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
+import { TEMP_DIR, createJob } from "@/lib/jobs";
 
-const TEMP_DIR = process.env.TEMP_DIR || "/tmp/360aligner";
 const MAX_SIZE = parseInt(process.env.MAX_UPLOAD_SIZE_GB || "8") * 1024 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
@@ -27,6 +27,8 @@ export async function POST(req: NextRequest) {
     const inputPath = join(jobDir, `input.${ext}`);
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(inputPath, buffer);
+
+    createJob(jobId, file.name, inputPath);
 
     return NextResponse.json({
       jobId,

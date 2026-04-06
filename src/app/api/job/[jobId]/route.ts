@@ -1,20 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rm } from "fs/promises";
+import { dirname } from "path";
+import { getJob, updateJob, deleteJob } from "@/lib/jobs";
 
-/**
- * TODO: Implement job cancellation endpoint.
- *
- * Kills the running FFmpeg process and cleans up temp files.
- * See docs/INFRASTRUCTURE.md for spec.
- */
 export async function DELETE(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: { jobId: string } }
 ) {
   const { jobId } = params;
+  const job = getJob(jobId);
+  if (!job) {
+    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
 
-  // TODO: Look up job, kill process, clean up files
-  return NextResponse.json(
-    { error: "Job cancellation not yet implemented", jobId },
-    { status: 501 }
-  );
+  // Kill any running ffmpeg
+  if (job.process && !job.process.killed) {
+    try {
+      job.process.kill("SIGKILL");
+    } catch {}
+  }
+
+  // Best-effort cleanup of the job dir (input + output)
+  try {
+    await rm(dirname(job.outputPath), { recursive: true, force: true });
+  } catch {}
+
+  updateJob(jobId, { status: "failed", error: "Cancelled by user" });
+  deleteJob(jobId);
+
+  return NextResponse.json({ ok: true, jobId });
 }
