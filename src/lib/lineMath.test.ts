@@ -42,3 +42,48 @@ describe("averageRoll", () => {
     expect(averageRoll([-3, -2, -4])).toBeCloseTo(-3);
   });
 });
+
+import { screenToSpherical, projectSphericalToScreen } from "./lineMath";
+
+describe("screenToSpherical / projectSphericalToScreen — round trip", () => {
+  const view = { yaw: 0, pitch: 0, roll: 0, fov: 100 };
+  const W = 800, H = 450;
+
+  it("centre pixel maps to (yaw=0, pitch=0) at zero rotation", () => {
+    const sph = screenToSpherical(W / 2, H / 2, W, H, view);
+    expect(sph.yaw).toBeCloseTo(0, 1);
+    expect(sph.pitch).toBeCloseTo(0, 1);
+  });
+
+  it("round-trips a non-centre pixel", () => {
+    const sx = 600, sy = 200;
+    const sph = screenToSpherical(sx, sy, W, H, view);
+    const back = projectSphericalToScreen(sph.yaw, sph.pitch, W, H, view);
+    expect(back.visible).toBe(true);
+    expect(back.x).toBeCloseTo(sx, 0);
+    expect(back.y).toBeCloseTo(sy, 0);
+  });
+
+  it("reports points behind the view as not visible", () => {
+    const back = projectSphericalToScreen(180, 0, W, H, view);
+    expect(back.visible).toBe(false);
+  });
+
+  it("round-trips after a yaw rotation", () => {
+    const rotated = { yaw: 30, pitch: 0, roll: 0, fov: 100 };
+    const sph = screenToSpherical(500, 220, W, H, rotated);
+    const back = projectSphericalToScreen(sph.yaw, sph.pitch, W, H, rotated);
+    expect(back.visible).toBe(true);
+    expect(back.x).toBeCloseTo(500, 0);
+    expect(back.y).toBeCloseTo(220, 0);
+  });
+
+  it("round-trips after a roll rotation", () => {
+    const rolled = { yaw: 0, pitch: 0, roll: 5, fov: 100 };
+    const sph = screenToSpherical(450, 240, W, H, rolled);
+    const back = projectSphericalToScreen(sph.yaw, sph.pitch, W, H, rolled);
+    expect(back.visible).toBe(true);
+    expect(back.x).toBeCloseTo(450, 0);
+    expect(back.y).toBeCloseTo(240, 0);
+  });
+});
