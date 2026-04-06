@@ -527,8 +527,23 @@ export default function VideoSection({
 
   return (
     <section className="border border-border-subtle rounded-lg overflow-hidden">
-      <div className="px-4 py-3 border-b border-border-subtle">
+      <div className="px-4 py-3 border-b border-border-subtle flex items-center justify-between">
         <h2 className="font-heading text-sm font-medium">VIDEO</h2>
+        <button
+          onClick={() => {
+            if (
+              window.confirm(
+                "Start over with a different file? This will reload the page and discard any in-progress alignment (queued jobs are unaffected)."
+              )
+            ) {
+              window.location.reload();
+            }
+          }}
+          className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
+          title="Reload the page and pick a new file"
+        >
+          ↻ Start over
+        </button>
       </div>
 
       {/* Hidden decode source */}
