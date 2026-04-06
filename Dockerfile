@@ -20,11 +20,14 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV TEMP_DIR=/tmp/360aligner
+# Keep transient working space under /app so the nextjs user owns it.
+# The previous /tmp/360aligner was created as root and triggered EACCES
+# when the unprivileged nextjs user tried to mkdir job subdirectories.
+ENV TEMP_DIR=/app/tmp/360aligner
 
-RUN mkdir -p /tmp/360aligner
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
+RUN mkdir -p /app/tmp/360aligner && chown -R nextjs:nodejs /app/tmp
 
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
