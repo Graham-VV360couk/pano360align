@@ -23,7 +23,6 @@ export default function Home() {
   const [frameDataURL, setFrameDataURL] = useState<string | null>(null);
   const [alignment, setAlignment] = useState<AlignmentValues>({ yaw: 0, pitch: 0, roll: 0 });
   const [fov, setFov] = useState(100);
-  const [videoUploading, setVideoUploading] = useState(false);
 
   function handleFileLoaded(f: File, type: FileType) {
     setFile(f);
@@ -63,7 +62,6 @@ export default function Home() {
           onReset={handleReset}
           fileName={file?.name}
           fileSize={file?.size}
-          resetDisabled={videoUploading}
         />
 
         {/* Alignment canvas — shown once a frame is available */}
@@ -94,7 +92,6 @@ export default function Home() {
             fov={fov}
             onFrameSelected={handleFrameSelected}
             onJobQueued={handleReset}
-            onUploadingChange={setVideoUploading}
           />
         )}
       </div>

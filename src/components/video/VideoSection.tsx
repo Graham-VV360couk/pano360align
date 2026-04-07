@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import type { AlignmentValues } from "@/app/page";
 import { addClientJob } from "@/lib/clientJobs";
 import { setLastAlignment } from "@/lib/clientAlignment";
+import { backgroundUploads } from "@/lib/uploadManager";
 
 interface VideoSectionProps {
   file: File;
@@ -11,7 +12,6 @@ interface VideoSectionProps {
   fov: number;
   onFrameSelected: (dataURL: string) => void;
   onJobQueued: () => void;
-  onUploadingChange?: (uploading: boolean) => void;
 }
 
 interface Thumb {
@@ -58,7 +58,6 @@ export default function VideoSection({
   fov,
   onFrameSelected,
   onJobQueued,
-  onUploadingChange,
 }: VideoSectionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const refCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -116,10 +115,7 @@ export default function VideoSection({
   };
   type Phase = "idle" | "uploading" | "processing" | "complete" | "failed";
   const [phase, setPhase] = useState<Phase>("idle");
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [jobError, setJobError] = useState<string | null>(null);
-  const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
 
   // Late reference frame warning (Warning 2)
   const [lateRefDismissed, setLateRefDismissed] = useState(false);
@@ -138,13 +134,6 @@ export default function VideoSection({
       localStorage.setItem("pano360.reencodeDismissed", "1");
     } catch {}
   };
-
-  // Notify the parent when we enter or leave the "uploading" phase so it
-  // can lock the upload-zone "Start again" button. Without this the user
-  // could navigate away mid-upload and orphan a job in pending-upload.
-  useEffect(() => {
-    onUploadingChange?.(phase === "uploading");
-  }, [phase, onUploadingChange]);
 
   // If the user changes alignment after locking, invalidate the lock
   useEffect(() => {
@@ -412,7 +401,7 @@ export default function VideoSection({
 
   const produce = async () => {
     if (!lockedAlignment) return;
-    if (phase === "uploading" || phase === "processing") return;
+    if (phase === "uploading") return;
 
     // Warning 4: zero values confirmation
     if (
@@ -433,12 +422,10 @@ export default function VideoSection({
     if (!okQueue) return;
 
     setJobError(null);
-    setUploadProgress(0);
     setPhase("uploading");
 
     try {
       // 1. Ask server for a presigned PUT URL and a fresh jobId.
-      //    The server creates the job in "pending-upload" state.
       const initRes = await fetch("/api/upload-init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -460,93 +447,37 @@ export default function VideoSection({
         jobId: string;
         putUrl: string;
       };
-      setJobId(newJobId);
 
-      // 2. PUT the raw file directly to S3 — bypasses our app server's
-      //    proxy entirely so the 90s upload timeout is no longer a factor.
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        uploadXhrRef.current = xhr;
-        xhr.open("PUT", putUrl);
-        xhr.setRequestHeader("Content-Type", "application/octet-stream");
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            setUploadProgress((e.loaded / e.total) * 100);
-          }
-        };
-        xhr.onload = () => {
-          uploadXhrRef.current = null;
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else
-            reject(
-              new Error(`S3 upload failed: ${xhr.status} ${xhr.responseText}`)
-            );
-        };
-        xhr.onerror = () => {
-          uploadXhrRef.current = null;
-          reject(new Error("S3 upload network error"));
-        };
-        xhr.onabort = () => {
-          uploadXhrRef.current = null;
-          reject(new Error("Upload cancelled"));
-        };
-        xhr.send(file);
-      });
-      setUploadProgress(100);
-
-      // 3. Tell the server the upload is done — it will mark the job as
-      //    queued and the worker will pick it up.
-      const completeRes = await fetch("/api/upload-complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: newJobId }),
-      });
-      if (!completeRes.ok) {
-        throw new Error(
-          `upload-complete failed: ${completeRes.status} ${await completeRes.text()}`
-        );
-      }
-
-      // Persist to localStorage so JobList picks it up
+      // 2. Persist to localStorage so JobList shows the row immediately.
       addClientJob({
         id: newJobId,
         filename: file.name,
         submittedAt: Date.now(),
       });
-      // Remember these values for the next video — same camera setup
-      // means the user can one-click "Apply last" instead of re-aligning.
+      // Save these alignment values for the next video's "Apply last" button.
       setLastAlignment({ ...lockedAlignment, fov });
-      // Notify same-tab listeners (JobList watches this)
+
+      // 3. Hand off to the background upload manager — fire and forget.
+      //    The manager will PUT to S3, then call /api/upload-complete itself.
+      backgroundUploads.enqueue({
+        id: newJobId,
+        putUrl,
+        file,
+        filename: file.name,
+        size: file.size,
+      });
+
+      // 4. Notify same-tab listeners that the JobList state changed.
       window.dispatchEvent(new Event("pano360.jobs.changed"));
 
-      // Reset everything so the user can immediately drop another file.
-      // The JobList component handles all subsequent status reporting.
+      // 5. Reset everything so the user can immediately drop another file.
+      //    This is the whole point — we're not awaiting the upload.
       setPhase("idle");
-      setJobId(null);
-      setUploadProgress(0);
       onJobQueued();
     } catch (err) {
       setPhase("failed");
       setJobError((err as Error).message);
     }
-  };
-
-  const cancelJob = async () => {
-    // Abort an in-flight upload if we're still in that phase
-    if (uploadXhrRef.current) {
-      try {
-        uploadXhrRef.current.abort();
-      } catch {}
-      uploadXhrRef.current = null;
-    }
-    if (jobId) {
-      try {
-        await fetch(`/api/job/${jobId}`, { method: "DELETE" });
-      } catch {}
-    }
-    setPhase("idle");
-    setUploadProgress(0);
-    setJobId(null);
   };
 
   // Highlight nearest thumbnail to playhead and ref marker
@@ -894,35 +825,6 @@ export default function VideoSection({
           </div>
         )}
 
-        {/* Job phase UI */}
-        {phase === "uploading" && (
-          <div className="rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="font-mono text-xs text-accent">
-                Uploading… {uploadProgress.toFixed(1)}%
-              </p>
-              <button
-                onClick={cancelJob}
-                className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-            <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
-              <div
-                className="h-full bg-accent transition-all"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-            <p className="font-mono text-[10px] text-text-muted leading-relaxed">
-              Please don&apos;t navigate away or refresh the page. The upload is
-              streaming directly to storage — leaving now will orphan this
-              job. Once it reaches 100% you&apos;ll be returned to the upload
-              zone automatically and can drop the next file.
-            </p>
-          </div>
-        )}
-
         {phase === "failed" && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 space-y-2">
             <p className="font-mono text-xs text-red-300">
@@ -932,7 +834,6 @@ export default function VideoSection({
               onClick={() => {
                 setPhase("idle");
                 setJobError(null);
-                setJobId(null);
               }}
               className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
             >
