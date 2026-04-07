@@ -270,9 +270,20 @@ function runFfmpeg(job: Job, inputPath: string, outputPath: string): Promise<voi
     // wraps the same as yaw. This keeps the math identical (just a sign
     // flip if you went round the long way) while satisfying the filter.
     const yaw = wrap180(job.alignment.yaw);
-    const roll = wrap180(job.alignment.roll);
+    // FFmpeg v360 uses the opposite roll chirality from our preview canvas:
+    // our positive roll rotates the displayed view clockwise (so the user
+    // sets +4° to flatten a CCW-tilted source), but v360's roll=+4 rotates
+    // the OUTPUT by +4° in the opposite direction. Negate it so that the
+    // value the user sees in the preview is the value that gets baked into
+    // the export. Verified empirically: a +4° preview correction was
+    // doubling the tilt in the output until this fix.
+    const roll = wrap180(-job.alignment.roll);
     const pitch = Math.max(-90, Math.min(90, job.alignment.pitch));
-    const vf = `v360=e:e:yaw=${yaw}:pitch=${pitch}:roll=${roll}:interp=lanczos`;
+    // interp=bilinear is good enough for 360 horizon correction and uses
+    // dramatically less memory than lanczos during filter graph init.
+    // The previous lanczos setting was OOM-killing the container on
+    // multi-GB 5760×2880 inputs.
+    const vf = `v360=e:e:yaw=${yaw}:pitch=${pitch}:roll=${roll}:interp=bilinear`;
     const trimArgs = job.trimStart > 0 ? ["-ss", String(job.trimStart)] : [];
     const args = [
       "-y",
@@ -281,7 +292,11 @@ function runFfmpeg(job: Job, inputPath: string, outputPath: string): Promise<voi
       "-vf", vf,
       "-c:v", "libx264",
       "-crf", String(ENCODE_CRF),
-      "-preset", "slow",
+      // preset=medium is the sweet spot: ~2× faster than slow with only
+      // ~5% larger files at the same CRF, and meaningfully lower peak RAM.
+      "-preset", "medium",
+      // Cap parallelism so memory doesn't fan out across cores.
+      "-threads", "2",
       "-pix_fmt", "yuv420p",
       "-c:a", "copy",
       "-movflags", "+faststart",
