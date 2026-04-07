@@ -205,6 +205,7 @@ async function videoUrlToPanoramaPixels(url: string): Promise<PanoramaPixels> {
 
 export default function EmbedGenerator() {
   const [videoUrl, setVideoUrl] = useState("");
+  const [localFile, setLocalFile] = useState<File | null>(null);
   const [preset, setPreset] = useState<StylePreset>("fixed");
   const [width, setWidth] = useState<Dimension>({ value: 800, unit: "px" });
   const [height, setHeight] = useState<Dimension>({ value: 450, unit: "px" });
@@ -223,9 +224,27 @@ export default function EmbedGenerator() {
   const draggingRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
-  // Load a frame from the video URL whenever it changes
+  // Build a blob URL from the local file (if any) — this is what the
+  // preview actually uses, since blob URLs are same-origin and never hit
+  // CORS issues. The remote videoUrl is only used in the embed code.
+  const previewSourceUrl = useMemo(() => {
+    if (localFile) return URL.createObjectURL(localFile);
+    if (videoUrl) return videoUrl;
+    return "";
+  }, [localFile, videoUrl]);
+
+  // Revoke blob URLs when they're no longer needed
   useEffect(() => {
-    if (!videoUrl) {
+    return () => {
+      if (previewSourceUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewSourceUrl);
+      }
+    };
+  }, [previewSourceUrl]);
+
+  // Load a frame from whichever source is available
+  useEffect(() => {
+    if (!previewSourceUrl) {
       pixelsRef.current = null;
       setPreviewState("idle");
       setPreviewError(null);
@@ -234,7 +253,7 @@ export default function EmbedGenerator() {
     let cancelled = false;
     setPreviewState("loading");
     setPreviewError(null);
-    videoUrlToPanoramaPixels(videoUrl)
+    videoUrlToPanoramaPixels(previewSourceUrl)
       .then((px) => {
         if (cancelled) return;
         pixelsRef.current = px;
@@ -251,7 +270,7 @@ export default function EmbedGenerator() {
     return () => {
       cancelled = true;
     };
-  }, [videoUrl]);
+  }, [previewSourceUrl]);
 
   // Render the preview whenever inputs change
   const drawPreview = useCallback(() => {
@@ -327,12 +346,36 @@ export default function EmbedGenerator() {
       </div>
       <div className="p-4 space-y-3">
         <p className="font-mono text-xs text-text-muted leading-relaxed">
-          Once you&apos;ve uploaded your corrected video to your own hosting,
-          paste the URL here and grab an embed snippet for your website.
+          Configure the embed visually. Pick the local file you just downloaded
+          to drive a live preview, then enter the public URL where the file
+          will be hosted online — that URL gets baked into the generated embed
+          code.
         </p>
 
         <label className="block">
-          <span className="block font-mono text-xs text-text-muted mb-1">Video URL</span>
+          <span className="block font-mono text-xs text-text-muted mb-1">
+            Local file <span className="text-text-muted/60">(for the preview only — never uploaded anywhere)</span>
+          </span>
+          <input
+            type="file"
+            accept="video/mp4,video/quicktime,video/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setLocalFile(f);
+            }}
+            className="w-full bg-black/40 border border-border-subtle rounded px-3 py-2 font-mono text-xs file:bg-accent/10 file:text-accent file:border-0 file:rounded file:px-3 file:py-1 file:mr-3 file:font-mono file:text-xs file:cursor-pointer"
+          />
+          {localFile && (
+            <p className="font-mono text-[10px] text-text-muted/70 mt-1">
+              {localFile.name} ({(localFile.size / (1024 * 1024)).toFixed(1)} MB)
+            </p>
+          )}
+        </label>
+
+        <label className="block">
+          <span className="block font-mono text-xs text-text-muted mb-1">
+            Public video URL <span className="text-text-muted/60">(where the embed will fetch the video on your client&apos;s site)</span>
+          </span>
           <input
             type="url"
             value={videoUrl}
@@ -342,8 +385,8 @@ export default function EmbedGenerator() {
           />
         </label>
 
-        {/* Preview canvas */}
-        {videoUrl && (
+        {/* Preview canvas — shown when EITHER source is available */}
+        {(localFile || videoUrl) && (
           <div className="space-y-2">
             <div className="relative bg-black/50 rounded overflow-hidden">
               <canvas
@@ -487,7 +530,7 @@ export default function EmbedGenerator() {
           </div>
         )}
 
-        {html && (
+        {html ? (
           <>
             <pre className="bg-black/50 border border-border-subtle rounded p-3 font-mono text-[10px] text-text-muted overflow-auto max-h-64 leading-relaxed">
 {html}
@@ -503,6 +546,11 @@ export default function EmbedGenerator() {
               Adapts to container size at runtime — paste it into any HTML page.
             </p>
           </>
+        ) : (
+          <p className="font-mono text-[10px] text-text-muted/70 italic">
+            Enter a public video URL above to generate the embed code.
+            {localFile && " (You can finish setting up the layout and FOV using the local preview first.)"}
+          </p>
         )}
       </div>
     </section>
