@@ -6,18 +6,22 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { filename, alignment, trimStart } = body as {
-      filename?: string;
-      alignment?: AlignmentValues;
-      trimStart?: number;
-    };
+    const { filename, alignment, trimStart, highQuality, highQualityInterp } =
+      body as {
+        filename?: string;
+        alignment?: AlignmentValues;
+        trimStart?: number;
+        highQuality?: boolean;
+        highQualityInterp?: boolean;
+      };
     if (!filename || !alignment) {
       return NextResponse.json({ error: "Missing filename or alignment" }, { status: 400 });
     }
     const result = await createJobForUpload(
       filename,
       alignment,
-      typeof trimStart === "number" ? trimStart : 0
+      typeof trimStart === "number" ? trimStart : 0,
+      { highQuality: !!highQuality, highQualityInterp: !!highQualityInterp }
     );
     return NextResponse.json(result);
   } catch (err) {

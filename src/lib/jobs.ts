@@ -17,7 +17,11 @@ import {
 
 export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/360aligner";
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
-const ENCODE_CRF = 18;
+// CRF 18 is "near-lossless" and the safe default. The user can opt into
+// CRF 12 per-job via the highQuality toggle for a bigger / slower master
+// they can re-edit in Premiere without quality loss accumulating.
+const DEFAULT_CRF = 18;
+const HIGH_QUALITY_CRF = 12;
 const PENDING_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
 
 export type JobStatus =
@@ -43,6 +47,12 @@ export interface Job {
   progress: number;
   alignment: AlignmentValues;
   trimStart: number;
+  /** When true, encode at CRF 12 instead of 18 — for masters that will
+   *  be further edited in Premiere. */
+  highQuality?: boolean;
+  /** When true, use spline16 v360 interpolation instead of lanczos — a
+   *  marginal sharpness improvement at marginal cost. */
+  highQualityInterp?: boolean;
   size: number;
   createdAt: number;
   completedAt: number | null;
@@ -94,7 +104,8 @@ async function persist(job: Job): Promise<void> {
 export async function createJobForUpload(
   filename: string,
   alignment: AlignmentValues,
-  trimStart: number
+  trimStart: number,
+  options: { highQuality?: boolean; highQualityInterp?: boolean } = {}
 ): Promise<{ jobId: string; putUrl: string; key: string }> {
   await ensureBoot();
   const id = randomUUID();
@@ -107,6 +118,8 @@ export async function createJobForUpload(
     progress: 0,
     alignment,
     trimStart,
+    highQuality: options.highQuality ?? false,
+    highQualityInterp: options.highQualityInterp ?? false,
     size: 0,
     createdAt: Date.now(),
     completedAt: null,
@@ -279,11 +292,10 @@ function runFfmpeg(job: Job, inputPath: string, outputPath: string): Promise<voi
     // doubling the tilt in the output until this fix.
     const roll = wrap180(-job.alignment.roll);
     const pitch = Math.max(-90, Math.min(90, job.alignment.pitch));
-    // interp=bilinear is good enough for 360 horizon correction and uses
-    // dramatically less memory than lanczos during filter graph init.
-    // The previous lanczos setting was OOM-killing the container on
-    // multi-GB 5760×2880 inputs.
-    const vf = `v360=e:e:yaw=${yaw}:pitch=${pitch}:roll=${roll}:interp=bilinear`;
+    // Per-job quality settings — chosen by the user via toggles in the UI.
+    const interp = job.highQualityInterp ? "spline16" : "lanczos";
+    const crf = job.highQuality ? HIGH_QUALITY_CRF : DEFAULT_CRF;
+    const vf = `v360=e:e:yaw=${yaw}:pitch=${pitch}:roll=${roll}:interp=${interp}`;
     const trimArgs = job.trimStart > 0 ? ["-ss", String(job.trimStart)] : [];
     const args = [
       "-y",
@@ -291,12 +303,8 @@ function runFfmpeg(job: Job, inputPath: string, outputPath: string): Promise<voi
       ...trimArgs,
       "-vf", vf,
       "-c:v", "libx264",
-      "-crf", String(ENCODE_CRF),
-      // preset=medium is the sweet spot: ~2× faster than slow with only
-      // ~5% larger files at the same CRF, and meaningfully lower peak RAM.
-      "-preset", "medium",
-      // Cap parallelism so memory doesn't fan out across cores.
-      "-threads", "2",
+      "-crf", String(crf),
+      "-preset", "slow",
       "-pix_fmt", "yuv420p",
       "-c:a", "copy",
       "-movflags", "+faststart",

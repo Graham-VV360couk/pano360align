@@ -90,6 +90,30 @@ export default function VideoSection({
     null
   );
   const [trimToReference, setTrimToReference] = useState(false);
+  // Per-job quality toggles. Persisted to localStorage so they're sticky
+  // across sessions but default OFF for new users.
+  const [highQuality, setHighQuality] = useState(false);
+  const [highQualityInterp, setHighQualityInterp] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setHighQuality(localStorage.getItem("pano360.highQuality") === "1");
+      setHighQualityInterp(
+        localStorage.getItem("pano360.highQualityInterp") === "1"
+      );
+    }
+  }, []);
+  const toggleHighQuality = (next: boolean) => {
+    setHighQuality(next);
+    try {
+      localStorage.setItem("pano360.highQuality", next ? "1" : "0");
+    } catch {}
+  };
+  const toggleHighQualityInterp = (next: boolean) => {
+    setHighQualityInterp(next);
+    try {
+      localStorage.setItem("pano360.highQualityInterp", next ? "1" : "0");
+    } catch {}
+  };
   type Phase = "idle" | "uploading" | "processing" | "complete" | "failed";
   const [phase, setPhase] = useState<Phase>("idle");
   const [jobId, setJobId] = useState<string | null>(null);
@@ -423,6 +447,8 @@ export default function VideoSection({
           alignment: lockedAlignment,
           trimStart:
             trimToReference && refTime != null && refTime > 0 ? refTime : 0,
+          highQuality,
+          highQualityInterp,
         }),
       });
       if (!initRes.ok) {
@@ -779,22 +805,54 @@ export default function VideoSection({
           </p>
         </div>
 
-        {/* Trim option */}
-        <label className="flex items-center gap-3 font-mono text-xs text-text-muted cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={trimToReference}
-            onChange={(e) => setTrimToReference(e.target.checked)}
-            disabled={refTime == null || refTime === 0}
-            className="accent-accent"
-          />
-          <span>
-            Trim output to start at reference frame
-            {refTime != null && refTime > 0 && (
-              <span className="ml-2 text-accent">({fmtTime(refTime)})</span>
-            )}
-          </span>
-        </label>
+        {/* Per-job options */}
+        <div className="space-y-2 border border-border-subtle/40 rounded-lg px-4 py-3">
+          <label className="flex items-center gap-3 font-mono text-xs text-text-muted cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={trimToReference}
+              onChange={(e) => setTrimToReference(e.target.checked)}
+              disabled={refTime == null || refTime === 0}
+              className="accent-accent"
+            />
+            <span>
+              Trim output to start at reference frame
+              {refTime != null && refTime > 0 && (
+                <span className="ml-2 text-accent">({fmtTime(refTime)})</span>
+              )}
+            </span>
+          </label>
+
+          <label
+            className="flex items-center gap-3 font-mono text-xs text-text-muted cursor-pointer select-none"
+            title="Encode at CRF 12 instead of 18. Bigger file (~30%), slightly slower encode. Use this when the corrected video will be re-edited in Premiere — preserves more headroom for grading."
+          >
+            <input
+              type="checkbox"
+              checked={highQuality}
+              onChange={(e) => toggleHighQuality(e.target.checked)}
+              className="accent-accent"
+            />
+            <span>
+              Higher quality master <span className="text-text-muted/60">(CRF 12 — for further editing in Premiere)</span>
+            </span>
+          </label>
+
+          <label
+            className="flex items-center gap-3 font-mono text-xs text-text-muted cursor-pointer select-none"
+            title="Use the spline16 v360 interpolation kernel instead of lanczos. Slightly sharper rotation result. Marginal cost in time and file size."
+          >
+            <input
+              type="checkbox"
+              checked={highQualityInterp}
+              onChange={(e) => toggleHighQualityInterp(e.target.checked)}
+              className="accent-accent"
+            />
+            <span>
+              Premium interpolation <span className="text-text-muted/60">(spline16 — slightly sharper rotation)</span>
+            </span>
+          </label>
+        </div>
 
         {/* Retrieve values */}
         <div className="flex gap-3">
