@@ -553,7 +553,7 @@ export default function VideoSection({
             }
           }}
           disabled={phase === "uploading"}
-          className="font-mono text-xs text-text-muted hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="font-mono text-xs text-text-muted enabled:hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-muted"
           title={
             phase === "uploading"
               ? "Wait until the current upload finishes"

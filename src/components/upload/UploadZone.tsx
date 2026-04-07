@@ -72,7 +72,7 @@ export default function UploadZone({ onFileLoaded, collapsed, onReset, fileName,
             onClick={onReset}
             disabled={resetDisabled}
             title={resetDisabled ? "Wait until the current upload finishes" : undefined}
-            className="font-mono text-xs text-accent hover:underline disabled:opacity-30 disabled:cursor-not-allowed disabled:no-underline"
+            className="font-mono text-xs text-accent enabled:hover:underline disabled:opacity-30 disabled:cursor-not-allowed disabled:no-underline"
           >
             Start again
           </button>
