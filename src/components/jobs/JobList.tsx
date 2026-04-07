@@ -7,6 +7,7 @@ import {
   clearCompletedClientJobs,
   type ClientJobRef,
 } from "@/lib/clientJobs";
+import { backgroundUploads } from "@/lib/uploadManager";
 
 interface JobSnapshot {
   id: string;
@@ -31,6 +32,15 @@ export default function JobList() {
   const [refs, setRefs] = useState<ClientJobRef[]>([]);
   const [snaps, setSnaps] = useState<Record<string, JobSnapshot>>({});
   const [open, setOpen] = useState(true);
+
+  // Re-render counter — incremented whenever the upload manager fires a
+  // progress event so the visible bars stay in sync.
+  const [, setUploadTick] = useState(0);
+  useEffect(() => {
+    return backgroundUploads.subscribe(() => {
+      setUploadTick((t) => t + 1);
+    });
+  }, []);
 
   // Initial load + listen for storage changes from this tab via custom event
   const reload = useCallback(() => {
@@ -82,6 +92,7 @@ export default function JobList() {
   }, [refs]);
 
   const dismiss = async (id: string) => {
+    backgroundUploads.cancel(id);
     removeClientJob(id);
     reload();
     try {
@@ -137,23 +148,39 @@ export default function JobList() {
         <ul className="max-h-72 overflow-y-auto divide-y divide-border-subtle">
           {refs.map((ref) => {
             const s = snaps[ref.id];
-            const status = s?.status ?? "pending-upload";
+            let status: string = s?.status ?? "pending-upload";
+            let displayProgress = s?.progress ?? 0;
+
+            // Overlay client-side upload state for jobs the server still considers pending-upload.
+            if (status === "pending-upload") {
+              if (backgroundUploads.isActive(ref.id)) {
+                status = "client-uploading";
+                displayProgress = backgroundUploads.getProgress(ref.id);
+              } else if (backgroundUploads.isQueued(ref.id)) {
+                status = "client-queued";
+              } else if (backgroundUploads.hasFailed(ref.id)) {
+                status = "client-failed";
+              }
+              // else: still "pending-upload" — the page was reloaded and the manager
+              // doesn't know about this job; the server's 30-min timeout will handle it.
+            }
             return (
               <li key={ref.id} className="px-4 py-3 flex items-center gap-3 text-xs font-mono">
                 <StatusGlyph status={status} />
                 <div className="flex-1 min-w-0">
                   <div className="truncate text-foreground">{ref.filename}</div>
                   <div className="text-text-muted">
-                    {statusLabel(status, s)}
+                    {statusLabel(status, s, displayProgress)}
                     {s?.error && <span className="text-red-300 ml-2">— {s.error}</span>}
                   </div>
                   {(status === "processing" ||
                     status === "downloading" ||
-                    status === "uploading") && (
+                    status === "uploading" ||
+                    status === "client-uploading") && (
                     <div className="h-1 mt-1.5 rounded-full bg-black/40 overflow-hidden">
                       <div
                         className="h-full bg-accent transition-all"
-                        style={{ width: `${s?.progress ?? 0}%` }}
+                        style={{ width: `${displayProgress}%` }}
                       />
                     </div>
                   )}
@@ -199,6 +226,9 @@ function StatusGlyph({ status }: { status: string }) {
     downloading: { ch: "⇣", cls: "text-accent" },
     processing: { ch: "⟳", cls: "text-accent" },
     uploading: { ch: "⇡", cls: "text-accent" },
+    "client-uploading": { ch: "↑", cls: "text-accent" },
+    "client-queued":    { ch: "↑", cls: "text-text-muted" },
+    "client-failed":    { ch: "✗", cls: "text-red-400" },
     complete: { ch: "✓", cls: "text-green-400" },
     failed: { ch: "✗", cls: "text-red-400" },
   };
@@ -206,10 +236,16 @@ function StatusGlyph({ status }: { status: string }) {
   return <span className={`text-base ${m.cls}`}>{m.ch}</span>;
 }
 
-function statusLabel(status: string, s: JobSnapshot | undefined): string {
+function statusLabel(status: string, s: JobSnapshot | undefined, displayProgress?: number): string {
   switch (status) {
     case "pending-upload":
       return "Uploading…";
+    case "client-uploading":
+      return `Uploading ${(displayProgress ?? 0).toFixed(0)}%`;
+    case "client-queued":
+      return "Waiting to upload";
+    case "client-failed":
+      return "Upload failed";
     case "queued":
       return s && s.queuePosition > 0 ? `Queued (#${s.queuePosition})` : "Queued";
     case "downloading":
