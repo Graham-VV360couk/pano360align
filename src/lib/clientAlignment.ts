@@ -12,6 +12,9 @@ export interface SavedAlignment {
   yaw: number;
   pitch: number;
   roll: number;
+  /** Preview FOV used at the moment of submission. Optional for back-compat
+   *  with older saved entries that didn't include it. */
+  fov?: number;
   savedAt: number;
 }
 
@@ -38,6 +41,7 @@ export function setLastAlignment(values: {
   yaw: number;
   pitch: number;
   roll: number;
+  fov?: number;
 }): void {
   if (typeof window === "undefined") return;
   try {

@@ -8,6 +8,7 @@ import { setLastAlignment } from "@/lib/clientAlignment";
 interface VideoSectionProps {
   file: File;
   alignment: AlignmentValues;
+  fov: number;
   onFrameSelected: (dataURL: string) => void;
   onJobQueued: () => void;
   onUploadingChange?: (uploading: boolean) => void;
@@ -54,6 +55,7 @@ function waitForSeeked(video: HTMLVideoElement): Promise<void> {
 export default function VideoSection({
   file,
   alignment,
+  fov,
   onFrameSelected,
   onJobQueued,
   onUploadingChange,
@@ -487,7 +489,7 @@ export default function VideoSection({
       });
       // Remember these values for the next video — same camera setup
       // means the user can one-click "Apply last" instead of re-aligning.
-      setLastAlignment(lockedAlignment);
+      setLastAlignment({ ...lockedAlignment, fov });
       // Notify same-tab listeners (JobList watches this)
       window.dispatchEvent(new Event("pano360.jobs.changed"));
 

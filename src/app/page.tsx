@@ -22,6 +22,7 @@ export default function Home() {
   const [fileType, setFileType] = useState<FileType>(null);
   const [frameDataURL, setFrameDataURL] = useState<string | null>(null);
   const [alignment, setAlignment] = useState<AlignmentValues>({ yaw: 0, pitch: 0, roll: 0 });
+  const [fov, setFov] = useState(100);
   const [videoUploading, setVideoUploading] = useState(false);
 
   function handleFileLoaded(f: File, type: FileType) {
@@ -46,6 +47,7 @@ export default function Home() {
     setFileType(null);
     setFrameDataURL(null);
     setAlignment({ yaw: 0, pitch: 0, roll: 0 });
+    setFov(100);
   }
 
   return (
@@ -70,6 +72,8 @@ export default function Home() {
             frameDataURL={frameDataURL}
             alignment={alignment}
             onAlignmentChange={setAlignment}
+            fov={fov}
+            onFovChange={setFov}
           />
         )}
 
@@ -87,6 +91,7 @@ export default function Home() {
           <VideoSection
             file={file}
             alignment={alignment}
+            fov={fov}
             onFrameSelected={handleFrameSelected}
             onJobQueued={handleReset}
             onUploadingChange={setVideoUploading}

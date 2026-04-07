@@ -19,6 +19,8 @@ interface AlignmentCanvasProps {
   frameDataURL: string;
   alignment: AlignmentValues;
   onAlignmentChange: (values: AlignmentValues) => void;
+  fov: number;
+  onFovChange: (fov: number) => void;
 }
 
 const DEFAULT_FOV = 100;
@@ -32,6 +34,8 @@ export default function AlignmentCanvas({
   frameDataURL,
   alignment,
   onAlignmentChange,
+  fov,
+  onFovChange,
 }: AlignmentCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -53,9 +57,9 @@ export default function AlignmentCanvas({
   const [lines, setLines] = useState<ReferenceLine[]>([]);
   const [selectedLineId, setSelectedLineId] = useState<number | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
-  const [fov, setFov] = useState(DEFAULT_FOV);
-  const fovRef = useRef(DEFAULT_FOV);
+  const fovRef = useRef(fov);
   useEffect(() => { fovRef.current = fov; }, [fov]);
+  const setFov = onFovChange;
   const nextLineIdRef = useRef(1);
 
   // Keep latest alignment available to imperative handlers
@@ -384,7 +388,8 @@ export default function AlignmentCanvas({
             {lastAlignment &&
               (lastAlignment.yaw !== alignment.yaw ||
                 lastAlignment.pitch !== alignment.pitch ||
-                lastAlignment.roll !== alignment.roll) && (
+                lastAlignment.roll !== alignment.roll ||
+                (lastAlignment.fov !== undefined && lastAlignment.fov !== fov)) && (
                 <button
                   onClick={() => {
                     onAlignmentChange({
@@ -392,13 +397,16 @@ export default function AlignmentCanvas({
                       pitch: lastAlignment.pitch,
                       roll: lastAlignment.roll,
                     });
+                    if (lastAlignment.fov !== undefined) {
+                      setFov(lastAlignment.fov);
+                    }
                     setLines([]);
                     setSelectedLineId(null);
                   }}
                   className="font-mono text-xs text-accent/80 hover:text-accent transition-colors"
-                  title={`yaw ${lastAlignment.yaw.toFixed(1)}° pitch ${lastAlignment.pitch.toFixed(1)}° roll ${lastAlignment.roll.toFixed(1)}°`}
+                  title={`yaw ${lastAlignment.yaw.toFixed(1)}° pitch ${lastAlignment.pitch.toFixed(1)}° roll ${lastAlignment.roll.toFixed(1)}°${lastAlignment.fov !== undefined ? ` fov ${lastAlignment.fov.toFixed(0)}°` : ""}`}
                 >
-                  ↻ Apply last ({lastAlignment.yaw.toFixed(1)}°, {lastAlignment.pitch.toFixed(1)}°, {lastAlignment.roll.toFixed(1)}°)
+                  ↻ Apply last ({lastAlignment.yaw.toFixed(1)}°, {lastAlignment.pitch.toFixed(1)}°, {lastAlignment.roll.toFixed(1)}°{lastAlignment.fov !== undefined ? `, ${lastAlignment.fov.toFixed(0)}° fov` : ""})
                 </button>
               )}
             <button
