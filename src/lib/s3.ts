@@ -20,6 +20,14 @@ export function s3(): S3Client {
           secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
         }
       : undefined,
+    // Disable the default checksum behaviour added in aws-sdk v3.7xx.
+    // Without this, presigned PUT URLs include x-amz-checksum-crc32 of an
+    // EMPTY body, which the browser can't satisfy when it sends a real
+    // multi-GB file → S3 silently rejects with a signature mismatch and
+    // the upload stalls invisibly. WHEN_REQUIRED restores the old "only
+    // add a checksum when the API explicitly requires it" behaviour.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
   });
   return _client;
 }
