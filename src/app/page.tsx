@@ -8,6 +8,7 @@ import AlignmentCanvas from "@/components/alignment/AlignmentCanvas";
 import StillExport from "@/components/alignment/StillExport";
 import VideoSection from "@/components/video/VideoSection";
 import JobList from "@/components/jobs/JobList";
+import EmbedGenerator from "@/components/embed/EmbedGenerator";
 
 export type FileType = "image" | "video" | null;
 
@@ -94,6 +95,8 @@ export default function Home() {
             onJobQueued={handleReset}
           />
         )}
+
+        <EmbedGenerator />
       </div>
 
       <Footer />
