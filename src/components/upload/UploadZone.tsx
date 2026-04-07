@@ -9,6 +9,7 @@ interface UploadZoneProps {
   onReset: () => void;
   fileName?: string;
   fileSize?: number;
+  resetDisabled?: boolean;
 }
 
 const ACCEPTED_TYPES = [
@@ -27,7 +28,7 @@ function formatBytes(bytes: number): string {
   return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
 }
 
-export default function UploadZone({ onFileLoaded, collapsed, onReset, fileName, fileSize }: UploadZoneProps) {
+export default function UploadZone({ onFileLoaded, collapsed, onReset, fileName, fileSize, resetDisabled }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback((file: File) => {
@@ -69,7 +70,9 @@ export default function UploadZone({ onFileLoaded, collapsed, onReset, fileName,
           </div>
           <button
             onClick={onReset}
-            className="font-mono text-xs text-accent hover:underline"
+            disabled={resetDisabled}
+            title={resetDisabled ? "Wait until the current upload finishes" : undefined}
+            className="font-mono text-xs text-accent hover:underline disabled:opacity-30 disabled:cursor-not-allowed disabled:no-underline"
           >
             Start again
           </button>

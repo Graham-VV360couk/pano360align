@@ -10,6 +10,7 @@ interface VideoSectionProps {
   alignment: AlignmentValues;
   onFrameSelected: (dataURL: string) => void;
   onJobQueued: () => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 interface Thumb {
@@ -55,6 +56,7 @@ export default function VideoSection({
   alignment,
   onFrameSelected,
   onJobQueued,
+  onUploadingChange,
 }: VideoSectionProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const refCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -110,6 +112,13 @@ export default function VideoSection({
       localStorage.setItem("pano360.reencodeDismissed", "1");
     } catch {}
   };
+
+  // Notify the parent when we enter or leave the "uploading" phase so it
+  // can lock the upload-zone "Start again" button. Without this the user
+  // could navigate away mid-upload and orphan a job in pending-upload.
+  useEffect(() => {
+    onUploadingChange?.(phase === "uploading");
+  }, [phase, onUploadingChange]);
 
   // If the user changes alignment after locking, invalidate the lock
   useEffect(() => {
@@ -543,8 +552,13 @@ export default function VideoSection({
               window.location.reload();
             }
           }}
-          className="font-mono text-xs text-text-muted hover:text-foreground transition-colors"
-          title="Reload the page and pick a new file"
+          disabled={phase === "uploading"}
+          className="font-mono text-xs text-text-muted hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          title={
+            phase === "uploading"
+              ? "Wait until the current upload finishes"
+              : "Reload the page and pick a new file"
+          }
         >
           ↻ Start over
         </button>
@@ -840,6 +854,12 @@ export default function VideoSection({
                 style={{ width: `${uploadProgress}%` }}
               />
             </div>
+            <p className="font-mono text-[10px] text-text-muted leading-relaxed">
+              Please don&apos;t navigate away or refresh the page. The upload is
+              streaming directly to storage — leaving now will orphan this
+              job. Once it reaches 100% you&apos;ll be returned to the upload
+              zone automatically and can drop the next file.
+            </p>
           </div>
         )}
 
