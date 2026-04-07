@@ -45,6 +45,38 @@ export function imageToPixels(img: HTMLImageElement, maxWidth = 4096): PanoramaP
 }
 
 /**
+ * Async version of imageToPixels that yields to the browser before the
+ * big getImageData call so the main thread stays responsive while the
+ * decode runs. Use this when capturing a frame to avoid the 2-3 second
+ * UI hitch.
+ */
+export async function imageToPixelsAsync(
+  img: HTMLImageElement,
+  maxWidth = 4096
+): Promise<PanoramaPixels> {
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  const scale = srcW > maxWidth ? maxWidth / srcW : 1;
+  const w = Math.round(srcW * scale);
+  const h = Math.round(srcH * scale);
+
+  const oc = document.createElement("canvas");
+  oc.width = w;
+  oc.height = h;
+  const octx = oc.getContext("2d", { willReadFrequently: true })!;
+  octx.drawImage(img, 0, 0, w, h);
+
+  // Yield once before the big getImageData call. drawImage above is
+  // synchronous but cheap; getImageData is the expensive bit because it
+  // copies w*h*4 bytes out of the canvas backing into a JS array. Yielding
+  // here lets React flush any pending state updates before the main
+  // thread blocks for the readback.
+  await new Promise((r) => setTimeout(r, 0));
+  const data = octx.getImageData(0, 0, w, h).data;
+  return { data, width: w, height: h };
+}
+
+/**
  * Render an equirectangular projection into the destination ImageData.
  * Roll is applied as a rotation of the local ray in the screen plane,
  * then yaw (Y axis), then pitch (X axis), matching EquiRecover's

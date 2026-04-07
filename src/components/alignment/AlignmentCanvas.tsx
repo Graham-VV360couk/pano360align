@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { AlignmentValues } from "@/app/page";
 import {
-  imageToPixels,
+  imageToPixelsAsync,
   renderEquirect,
   type PanoramaPixels,
 } from "@/lib/equirect";
@@ -100,8 +100,8 @@ export default function AlignmentCanvas({
     pixelsRef.current = null;
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = () => {
-      pixelsRef.current = imageToPixels(img, 4096);
+    img.onload = async () => {
+      pixelsRef.current = await imageToPixelsAsync(img, 4096);
       setLoaded(true);
       requestDraw();
     };
