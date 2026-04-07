@@ -81,8 +81,6 @@ export default function JobList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refs]);
 
-  if (refs.length === 0) return null;
-
   const dismiss = async (id: string) => {
     removeClientJob(id);
     reload();
@@ -129,7 +127,13 @@ export default function JobList() {
           <span className="font-mono text-xs text-text-muted">{open ? "▾" : "▸"}</span>
         </div>
       </header>
-      {open && (
+      {open && refs.length === 0 && (
+        <div className="px-4 py-4 text-xs font-mono text-text-muted">
+          No jobs yet — produce a video and it&apos;ll appear here. The list
+          persists across page reloads.
+        </div>
+      )}
+      {open && refs.length > 0 && (
         <ul className="max-h-72 overflow-y-auto divide-y divide-border-subtle">
           {refs.map((ref) => {
             const s = snaps[ref.id];
