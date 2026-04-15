@@ -23,6 +23,7 @@ const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const DEFAULT_CRF = 18;
 const HIGH_QUALITY_CRF = 12;
 const PENDING_UPLOAD_TIMEOUT_MS = 30 * 60 * 1000; // 30 min
+const SWEEP_INTERVAL_MS = 5 * 60 * 1000; // Check for expired pending-uploads every 5 min
 
 export type JobStatus =
   | "pending-upload"
@@ -72,6 +73,7 @@ const g = globalThis as unknown as {
   __pano360CurrentId?: string | null;
   __pano360WorkerRunning?: boolean;
   __pano360BootDone?: boolean;
+  __pano360SweepTimer?: NodeJS.Timeout;
 };
 if (!g.__pano360Jobs) g.__pano360Jobs = new Map();
 if (!g.__pano360Procs) g.__pano360Procs = new Map();
@@ -348,12 +350,37 @@ function runFfmpeg(job: Job, inputPath: string, outputPath: string): Promise<voi
   });
 }
 
+/**
+ * Fully delete expired pending-upload jobs from memory and S3. A pending-upload
+ * that never completed has no input file in S3 (PUTs are atomic), so the only
+ * artifact to clean up is the job.json tombstone. Safe to run repeatedly.
+ */
+export async function sweepExpiredPendingUploads(): Promise<number> {
+  const now = Date.now();
+  const expired: string[] = [];
+  jobs.forEach((job) => {
+    if (job.status === "pending-upload" && now - job.createdAt > PENDING_UPLOAD_TIMEOUT_MS) {
+      expired.push(job.id);
+    }
+  });
+  for (const id of expired) {
+    try {
+      await deletePrefix(`jobs/${id}/`);
+    } catch (err) {
+      console.error(`Sweep: failed to delete S3 prefix for ${id}:`, err);
+    }
+    jobs.delete(id);
+  }
+  return expired.length;
+}
+
 /** Ensure boot recovery has run before any other operation. */
 export async function ensureBoot(): Promise<void> {
   if (g.__pano360BootDone) return;
   g.__pano360BootDone = true;
   try {
     const ids = await listJobIds();
+    const expiredAtBoot: string[] = [];
     for (const id of ids) {
       const job = await getJson<Job>(jobKey(id, "job"));
       if (!job) continue;
@@ -365,15 +392,33 @@ export async function ensureBoot(): Promise<void> {
       }
 
       if (job.status === "pending-upload" && Date.now() - job.createdAt > PENDING_UPLOAD_TIMEOUT_MS) {
-        job.status = "failed";
-        job.error = "Upload never completed";
-        await putJson(jobKey(id, "job"), job);
+        expiredAtBoot.push(id);
+        continue;
       }
 
       jobs.set(id, job);
       if (job.status === "queued") enqueue(id);
     }
+    // Clean up S3 for pending-upload jobs that expired while the server was down.
+    for (const id of expiredAtBoot) {
+      try {
+        await deletePrefix(`jobs/${id}/`);
+      } catch (err) {
+        console.error(`Boot sweep: failed to delete S3 prefix for ${id}:`, err);
+      }
+    }
     if (g.__pano360Queue!.length > 0) startWorker();
+
+    // Schedule a periodic sweep so long-running pending-uploads get cleaned up
+    // even without a restart. Unref so this doesn't keep the process alive.
+    if (!g.__pano360SweepTimer) {
+      g.__pano360SweepTimer = setInterval(() => {
+        sweepExpiredPendingUploads().catch((err) => {
+          console.error("Periodic sweep failed:", err);
+        });
+      }, SWEEP_INTERVAL_MS);
+      g.__pano360SweepTimer.unref?.();
+    }
   } catch (err) {
     console.error("Boot recovery failed:", err);
   }

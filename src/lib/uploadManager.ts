@@ -22,15 +22,51 @@ interface UploadEntry {
 
 type ProgressMap = Record<string, number>; // jobId → 0-100
 
+// Hard cap on concurrency. Above ~8 you hit diminishing returns from TCP
+// fairness and S3 per-connection throughput, and start risking rate limits.
+export const MAX_CONCURRENT_UPLOADS = 8;
+const CONCURRENCY_STORAGE_KEY = "pano360.maxConcurrent";
+
+function readStoredConcurrency(): number {
+  if (typeof window === "undefined") return 1;
+  try {
+    const raw = window.localStorage.getItem(CONCURRENCY_STORAGE_KEY);
+    if (!raw) return 1;
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(1, Math.min(MAX_CONCURRENT_UPLOADS, n));
+  } catch {
+    return 1;
+  }
+}
+
 class BackgroundUploadManager {
   private queue: UploadEntry[] = [];
   private active: Map<string, XMLHttpRequest> = new Map();
   private progress: ProgressMap = {};
   private failed: Set<string> = new Set();
   private listeners: Set<() => void> = new Set();
-  // Concurrent uploads. 1 is the safe default; bumping it past 2-3 hurts
-  // most home links because of TCP fairness and TLS overhead.
-  private maxConcurrent = 1;
+  // Default 1 is the safe choice for typical home links. User can raise up
+  // to MAX_CONCURRENT_UPLOADS via the control in the JobList header.
+  private maxConcurrent = readStoredConcurrency();
+
+  getMaxConcurrent(): number {
+    return this.maxConcurrent;
+  }
+
+  setMaxConcurrent(n: number): void {
+    const clamped = Math.max(1, Math.min(MAX_CONCURRENT_UPLOADS, Math.floor(n)));
+    if (clamped === this.maxConcurrent) return;
+    this.maxConcurrent = clamped;
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(CONCURRENCY_STORAGE_KEY, String(clamped));
+      } catch {}
+    }
+    this.notify();
+    // If we raised the cap, start any queued uploads that now fit.
+    this.tick();
+  }
 
   enqueue(entry: UploadEntry): void {
     this.queue.push(entry);

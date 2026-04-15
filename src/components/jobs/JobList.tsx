@@ -7,7 +7,7 @@ import {
   clearCompletedClientJobs,
   type ClientJobRef,
 } from "@/lib/clientJobs";
-import { backgroundUploads } from "@/lib/uploadManager";
+import { backgroundUploads, MAX_CONCURRENT_UPLOADS } from "@/lib/uploadManager";
 
 interface JobSnapshot {
   id: string;
@@ -126,6 +126,26 @@ export default function JobList() {
           Jobs ({refs.length})
         </h2>
         <div className="flex items-center gap-3">
+          <label
+            className="flex items-center gap-1.5 font-mono text-[11px] text-text-muted cursor-pointer"
+            onClick={(e) => e.stopPropagation()}
+            title={`Number of uploads that run in parallel. Max ${MAX_CONCURRENT_UPLOADS}. Higher is faster on fast links but can backfire on home broadband.`}
+          >
+            <span>Parallel uploads</span>
+            <select
+              value={backgroundUploads.getMaxConcurrent()}
+              onChange={(e) => {
+                backgroundUploads.setMaxConcurrent(parseInt(e.target.value, 10));
+              }}
+              className="bg-black/40 border border-border-subtle rounded px-1 py-0.5 font-mono text-[11px]"
+            >
+              {Array.from({ length: MAX_CONCURRENT_UPLOADS }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             onClick={(e) => {
               e.stopPropagation();
