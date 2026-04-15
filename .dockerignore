@@ -1,0 +1,57 @@
+# ── CRITICAL: env files and Graham's scratchpad ──
+.env
+.env.*
+*.env
+*.gaf
+
+# ── Source control ──
+.git
+.github
+.gitignore
+.gitattributes
+
+# ── Build / cache ──
+node_modules
+.next
+dist
+build
+out
+coverage
+.turbo
+.cache
+
+# ── IDE / tooling ──
+.vscode
+.idea
+*.code-workspace
+.claude
+.superpowers
+.playwright-mcp
+
+# ── Logs / test ──
+*.log
+logs
+playwright-report
+test-results
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+vitest.config.ts
+
+# ── Docs (not needed at runtime) ──
+docs
+README.md
+CLAUDE.md
+
+# ── Backup / temp / OS junk ──
+*.backup
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+nul
+*.pem
